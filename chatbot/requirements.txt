@@ -1,8 +1,9 @@
 fastapi
-uvicorn[standard]
-SQLAlchemy
-PyMySQL
+uvicorn
+sqlalchemy
 pydantic
+python-jose[cryptography]
+passlib[bcrypt]
+pymysql
 email-validator
-passlib
-bcrypt
+python-multipart
