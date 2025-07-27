@@ -19,11 +19,15 @@ def hash_password(password: str) -> tuple[str, str]:
     return salt_b64, hashed_password_b64
 
 def verify_password(password: str, salt_b64: str, hashed_b64: str) -> bool:
-    """입력된 비밀번호를 저장된 salt로 해시화하여 기존 해시와 비교합니다."""
     salt = base64.b64decode(salt_b64)
-    hashed_password_to_check = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
-    return hashed_password_to_check == base64.b64decode(hashed_b64)
-
+    hashed = base64.b64decode(hashed_b64)
+    password_to_check = hashlib.pbkdf2_hmac(
+        'sha256',
+        password.encode(),
+        salt,
+        100000
+    )
+    return password_to_check == hashed
 # --- User CRUD ---
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(models.User.email == email).first()
