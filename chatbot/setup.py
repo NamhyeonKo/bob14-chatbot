@@ -1,0 +1,19 @@
+from setuptools import setup, find_packages
+
+setup(
+    name="chatbot",
+    version="0.1.0",
+    packages=find_packages(),
+    install_requires=[
+        "fastapi>=0.68.0,<0.69.0",
+        "pydantic>=1.8.0,<2.0.0",
+        "uvicorn>=0.15.0,<0.16.0",
+        "SQLAlchemy>=1.4.0,<1.5.0",
+        "pymysql>=1.0.2,<1.1.0",
+        "email-validator>=1.1.0,<1.2.0",
+        "python-multipart>=0.0.5,<0.0.6",
+        "python-jose[cryptography]>=3.3.0,<3.4.0",
+        "passlib[bcrypt]>=1.7.4,<1.8.0",
+        "alembic>=1.7.0,<1.8.0"
+    ],
+)
