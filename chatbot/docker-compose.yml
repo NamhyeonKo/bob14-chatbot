@@ -1,7 +1,7 @@
 version : "3.3"
 services:
   mariadb:
-    image: mariadb:11.02
+    image: mariadb:latest
     ports:
       - 3306:3306
     volumes:
@@ -11,7 +11,7 @@ services:
   api:
     image: <>
     ports:
-      - 80ㅣ8080
+      - 80:8080
     environment:
       DB_PASSWORD: password
       LOG_LVL: debug
@@ -19,6 +19,6 @@ services:
     depends_on:
       - mariadb
     command:
-      sh –c "./start.sh"
+      sh -c "./start.sh"
 volumes:
   bob-mariadb-data:
