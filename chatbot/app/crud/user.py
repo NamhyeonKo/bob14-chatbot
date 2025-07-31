@@ -3,7 +3,8 @@ import os
 import base64
 from sqlalchemy.orm import Session
 from typing import Optional
-from app.models.user import User
+from datetime import datetime
+from app.models.user import User, AccessLog
 from app.schemas import user as user_schema
 
 def get_user_by_email(db: Session, email: str) -> Optional[User]:
@@ -46,3 +47,28 @@ def verify_password(password: str, salt_b64: str, hashed_b64: str) -> bool:
         100000
     )
     return password_to_check == stored_password
+
+def create_access_log(db: Session, user_id: int):
+    """
+    사용자 접근 로그를 생성하고 데이터베이스에 저장합니다.
+    access_id는 access_time과 user_id를 조합하여 SHA256 해시값으로 생성합니다.
+    """
+    access_time = datetime.now()
+    
+    # access_id 생성을 위한 데이터 조합
+    data_to_hash = f"{access_time}{user_id}"
+    
+    # SHA256 해시 생성
+    access_id = hashlib.sha256(data_to_hash.encode()).hexdigest()
+
+    db_access_log = AccessLog(
+        id=access_id,
+        user_id=user_id,
+        access_time=access_time,
+        action="get_user"
+    )
+    
+    db.add(db_access_log)
+    db.commit()
+    db.refresh(db_access_log)
+    return db_access_log
