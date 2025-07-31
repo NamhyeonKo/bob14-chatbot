@@ -29,7 +29,6 @@ uvicorn main:app --reload
 
 - `POST /users/`: 새 사용자 생성
 - `GET /users/{user_id}`: 사용자 정보 조회
-- `POST /users/login`: 사용자 로그인
 
 ## 인증
 
