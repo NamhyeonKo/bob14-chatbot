@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 from app.api import user
-from app.api import user, ioc
+from app.api import ioc
 
 app = FastAPI(title="Bobbot API")
 

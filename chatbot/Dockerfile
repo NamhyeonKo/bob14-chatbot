@@ -1,5 +1,5 @@
 # 1. 베이스 이미지 선택
-FROM python:3.12-slim
+FROM python:3.13.2
 
 # 2. 환경 변수 설정
 ENV PYTHONUNBUFFERED=1 \
@@ -21,4 +21,4 @@ EXPOSE 8000
 
 # 7. 컨테이너 실행 명령어
 # 'main:app'은 main.py 파일의 app 변수를 의미합니다. 파일명이 다르면 수정해주세요.
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
