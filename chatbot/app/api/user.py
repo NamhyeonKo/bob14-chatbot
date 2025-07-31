@@ -37,22 +37,3 @@ def get_user(
             detail="User not found"
         )
     return db_user
-
-@router.post("/login")
-def login(
-    user: user_schema.UserLogin,
-    db_session: Session = Depends(db.get_session)
-) -> Any:
-    """User login"""
-    db_user = user_crud.get_user_by_email(db_session, email=user.email)
-    if not db_user:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid email or password"
-        )
-    if not user_crud.verify_password(user.password, db_user.salt, db_user.hashed_password):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid email or password"
-        )
-    return {"message": f"Login successful for user {db_user.username}"}
