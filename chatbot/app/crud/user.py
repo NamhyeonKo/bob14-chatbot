@@ -6,6 +6,7 @@ from typing import Optional
 from datetime import datetime
 from app.models.user import User, AccessLog
 from app.schemas import user as user_schema
+from typing import Optional
 
 def get_user_by_email(db: Session, email: str) -> Optional[User]:
     return db.query(User).filter(User.email == email).first()
@@ -48,22 +49,16 @@ def verify_password(password: str, salt_b64: str, hashed_b64: str) -> bool:
     )
     return password_to_check == stored_password
 
-def create_access_log(db: Session, user_id: int):
-    """
-    사용자 접근 로그를 생성하고 데이터베이스에 저장합니다.
-    access_id는 access_time과 user_id를 조합하여 SHA256 해시값으로 생성합니다.
-    """
+def create_access_log(db: Session, user_id: int, ip_address: Optional[str] = None) -> AccessLog:
+    """사용자 접근 로그를 IP 주소와 함께 생성하고 데이터베이스에 저장합니다."""
     access_time = datetime.now()
-    
-    # access_id 생성을 위한 데이터 조합
-    data_to_hash = f"{access_time}{user_id}"
-    
-    # SHA256 해시 생성
+    data_to_hash = f"{access_time}{user_id}{ip_address}"
     access_id = hashlib.sha256(data_to_hash.encode()).hexdigest()
 
     db_access_log = AccessLog(
         id=access_id,
         user_id=user_id,
+        ip_address=ip_address,
         access_time=access_time,
         action="get_user"
     )
