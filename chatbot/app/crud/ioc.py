@@ -8,7 +8,6 @@ from app.core.config import conf
 from app.models.ioc import IoC
 from app.schemas.ioc import IoCCreate
 
-# VirusTotal API 키를 conf.json 파일에서 가져옵니다.
 VT_API_KEY = conf.get("virustotal_api_key")
 VT_API_URL = "https://www.virustotal.com/api/v3/ip_addresses/"
 
@@ -37,14 +36,6 @@ def create_ioc_report(db: Session, ip: str, vt_data: dict, access_log_id: Option
     attributes = vt_data.get("data", {}).get("attributes", {})
     stats = attributes.get("last_analysis_stats", {})
 
-    # essential_data = {
-    #     "last_analysis_stats": stats,
-    #     "reputation": attributes.get("reputation"),
-    #     "country": attributes.get("country"),
-    #     "network": attributes.get("network"),
-    #     "as_owner": attributes.get("as_owner"),
-    # }
-
     ioc_data = IoCCreate(
         access_log_id=access_log_id,
         indicator_type="ip",
@@ -54,7 +45,7 @@ def create_ioc_report(db: Session, ip: str, vt_data: dict, access_log_id: Option
         suspicious_count=stats.get("suspicious", 0),
         harmless_count=stats.get("harmless", 0),
         reputation=attributes.get("reputation", 0),
-        raw_data={},    #essential_data,
+        raw_data={},
         last_analyzed=datetime.now()
     )
 
