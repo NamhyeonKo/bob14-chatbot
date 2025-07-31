@@ -2,6 +2,7 @@ import requests
 from sqlalchemy.orm import Session
 from datetime import datetime
 from fastapi import HTTPException
+from typing import Optional
 
 from app.core.config import conf
 from app.models.ioc import IoC
@@ -30,13 +31,22 @@ def analyze_ip_with_virustotal(ip: str):
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch data from VirusTotal: {e}")
 
-def create_ioc_report(db: Session, access_log_id: str, ip: str, vt_data: dict) -> IoC:
+def create_ioc_report(db: Session, ip: str, vt_data: dict, access_log_id: Optional[str] = None) -> IoC:
     """분석 결과를 access_log_id와 연결하여 DB에 저장합니다."""
+    
     attributes = vt_data.get("data", {}).get("attributes", {})
     stats = attributes.get("last_analysis_stats", {})
 
+    # essential_data = {
+    #     "last_analysis_stats": stats,
+    #     "reputation": attributes.get("reputation"),
+    #     "country": attributes.get("country"),
+    #     "network": attributes.get("network"),
+    #     "as_owner": attributes.get("as_owner"),
+    # }
+
     ioc_data = IoCCreate(
-        access_log_id=access_log_id, # access_log_id 추가
+        access_log_id=access_log_id,
         indicator_type="ip",
         indicator_value=ip,
         source="VirusTotal",
@@ -44,7 +54,7 @@ def create_ioc_report(db: Session, access_log_id: str, ip: str, vt_data: dict) -
         suspicious_count=stats.get("suspicious", 0),
         harmless_count=stats.get("harmless", 0),
         reputation=attributes.get("reputation", 0),
-        raw_data=vt_data,
+        raw_data={},    #essential_data,
         last_analyzed=datetime.now()
     )
 
