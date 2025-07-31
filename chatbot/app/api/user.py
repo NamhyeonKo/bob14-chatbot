@@ -36,4 +36,7 @@ def get_user(
             status_code=404,
             detail="User not found"
         )
+    
+    user_crud.create_access_log(db_session, user_id=user_id)
+    
     return db_user
