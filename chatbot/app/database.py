@@ -28,12 +28,18 @@ class Database:
                 autocommit=False
             )
         )
+        self.engine = create_engine(...)
+        self.Session = scoped_session(...)
 
     def get_session(self):
-        db = self.Session()
+        session = self.Session()
         try:
-            yield db
+            yield session
+        except Exception:
+            session.rollback()
+            raise
         finally:
-            db.close()
+            session.close()
 
 db = Database()
+get_session = db.get_session
