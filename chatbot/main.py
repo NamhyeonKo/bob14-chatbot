@@ -2,12 +2,14 @@ import uvicorn
 from fastapi import FastAPI
 from app.api import user
 from app.api import ioc
+from app.api import cti
 
 app = FastAPI(title="Bobbot API")
 
 # Include routers
 app.include_router(user.router, prefix="/users", tags=["users"])
 app.include_router(ioc.router, prefix="/ioc", tags=["ioc"])
+app.include_router(cti.router, prefix="/cti", tags=["cti"])
 
 if __name__ == "__main__":
     uvicorn.run(
