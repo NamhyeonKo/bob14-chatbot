@@ -1,176 +1,281 @@
-import re
 import requests
-from datetime import datetime
-from typing import Optional, Tuple, Dict, Any, List
-
-from fastapi import HTTPException
+import socket
 from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import Dict, Any, List
 
 from app.core.config import conf
 from app.models.cti import CTI
 from app.schemas.cti import CTICreate
 
-# Config keys (keep lowercase fallbacks for consistency)
-VT_API_KEY = conf.get("virustotal_api_key") or conf.get("VIRUSTOTAL_API_KEY")
-HYBRID_API_KEY = conf.get("HYBRID_API_KEY")
-URLSCAN_API_KEY = conf.get("URLSCAN_API_KEY")
 
-VT_IP_URL = "https://www.virustotal.com/api/v3/ip_addresses/"  # + {ip}
-VT_DOMAIN_URL = "https://www.virustotal.com/api/v3/domains/"    # + {domain}
-HYBRID_HASH_SEARCH_URL = "https://www.hybrid-analysis.com/api/v2/search/hash"  # parameter hash=<hash>
-URLSCAN_DOMAIN_URL = "https://urlscan.io/api/v1/domain/"  # + {domain}
-
-IP_REGEX = re.compile(r"^((25[0-5]|2[0-4]\d|[0-1]?\d?\d)(\.|$)){4}$")
-SHA256_REGEX = re.compile(r"^[A-Fa-f0-9]{64}$")
-SHA1_REGEX = re.compile(r"^[A-Fa-f0-9]{40}$")
-MD5_REGEX = re.compile(r"^[A-Fa-f0-9]{32}$")
-DOMAIN_REGEX = re.compile(r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)\.(?:[A-Za-z]{2,63})$")
-
-
-def get_cti_by_search_item(db: Session, search_item: str) -> Optional[CTI]:
-	return db.query(CTI).filter(CTI.search_item == search_item).first()
-
-
-def classify_item(item: str) -> str:
-	"""Return one of: ip, hash, domain. Raises if unsupported."""
-	if IP_REGEX.match(item):
-		return "ip"
-	if SHA256_REGEX.match(item) or SHA1_REGEX.match(item) or MD5_REGEX.match(item):
-		return "hash"
-	# domain (simple heuristic – exclude protocol & path)
-	cleaned = item.lower().strip()
-	cleaned = cleaned.split("/")[0] if "://" not in cleaned else cleaned.split("//", 1)[1].split("/", 1)[0]
-	if DOMAIN_REGEX.match(cleaned):
-		return "domain"
-	raise HTTPException(status_code=400, detail="지원하지 않는 검색 항목 형식입니다 (ip / hash / domain 만 지원).")
-
-
-def analyze_ip_virustotal(ip: str) -> Dict[str, Any]:
-	if not VT_API_KEY:
-		raise HTTPException(status_code=500, detail="VirusTotal API Key 미설정")
-	headers = {"x-apikey": VT_API_KEY}
-	try:
-		r = requests.get(VT_IP_URL + ip, headers=headers, timeout=15)
-		r.raise_for_status()
-		return r.json()
-	except requests.RequestException as e:
-		raise HTTPException(status_code=502, detail=f"VirusTotal IP 조회 실패: {e}")
-
-
-def parse_vt_ip(data: Dict[str, Any]) -> Dict[str, Any]:
-	attr = data.get("data", {}).get("attributes", {})
-	stats = attr.get("last_analysis_stats", {})
-	malicious = stats.get("malicious", 0)
-	# Collect vendor names marking malicious (limit 5)
-	results = attr.get("last_analysis_results", {}) or {}
-	vendors: List[str] = [k for k, v in results.items() if v.get("category") == "malicious"]
-	detect_vendor = ",".join(vendors[:5]) if vendors else "VirusTotal"
-	return dict(
-		malicious_score=malicious,
-		detect_count=malicious,
-		detect_vendor=detect_vendor,
-		tag=attr.get("tags", ["ip"])[0] if attr.get("tags") else "ip",
-		country=attr.get("country") or "",
-		dns=attr.get("as_owner") or "",
-	)
-
-
-def analyze_hash_hybrid(file_hash: str) -> Dict[str, Any]:
-	if not HYBRID_API_KEY:
-		raise HTTPException(status_code=500, detail="Hybrid Analysis API Key 미설정")
-	headers = {
-		"api-key": HYBRID_API_KEY,
-		"User-Agent": "Falcon Sandbox",
-		"Accept": "application/json",
-	}
-	try:
-		r = requests.get(HYBRID_HASH_SEARCH_URL, params={"hash": file_hash}, headers=headers, timeout=20)
-		r.raise_for_status()
-		return r.json()
-	except requests.RequestException as e:
-		raise HTTPException(status_code=502, detail=f"Hybrid Analysis 조회 실패: {e}")
-
-
-def parse_hybrid_hash(data: Dict[str, Any]) -> Dict[str, Any]:
-	# Response could be a list (search results)
-	first = data[0] if isinstance(data, list) and data else {}
-	score = first.get("threat_score") or 0
-	av_detect = first.get("av_detect") or 0
-	vendor = first.get("verdict") or "Hybrid-Analysis"
-	tag = first.get("type") or first.get("environment_description") or "file"
-	return dict(
-		malicious_score=score,
-		detect_count=av_detect,
-		detect_vendor=vendor,
-		tag=tag,
-		country="",
-		dns="",
-	)
-
-
-def analyze_domain_urlscan(domain: str) -> Dict[str, Any]:
-	# urlscan domain info does not require API key; if provided, include
-	headers = {"Accept": "application/json"}
-	if URLSCAN_API_KEY:
-		headers["API-Key"] = URLSCAN_API_KEY
-	try:
-		r = requests.get(URLSCAN_DOMAIN_URL + domain, headers=headers, timeout=15)
-		r.raise_for_status()
-		return r.json()
-	except requests.RequestException as e:
-		raise HTTPException(status_code=502, detail=f"Urlscan 조회 실패: {e}")
-
-
-def parse_urlscan_domain(data: Dict[str, Any]) -> Dict[str, Any]:
-	stats = data.get("stats", {})
-	tags = data.get("tags") or []
-	malicious = stats.get("malicious", 0) or stats.get("maliciousCount", 0) or 0
-	country = data.get("country", "")
-	dns_records = data.get("dns", {}).get("records", {}) if isinstance(data.get("dns"), dict) else {}
-	a_records = dns_records.get("A") or []
-	dns_join = ",".join([r.get("value") for r in a_records if isinstance(r, dict) and r.get("value")])
-	return dict(
-		malicious_score=malicious,
-		detect_count=malicious,
-		detect_vendor="Urlscan",
-		tag=tags[0] if tags else "domain",
-		country=country,
-		dns=dns_join,
-	)
-
-
-def analyze_and_create(db: Session, search_item: str) -> CTI:
-	kind = classify_item(search_item)
-	raw: Dict[str, Any]
-	parsed: Dict[str, Any]
-	source: str
-	if kind == "ip":
-		raw = analyze_ip_virustotal(search_item)
-		parsed = parse_vt_ip(raw)
-		source = "VirusTotal"
-	elif kind == "hash":
-		raw = analyze_hash_hybrid(search_item)
-		parsed = parse_hybrid_hash(raw)
-		source = "Hybrid-Analysis"
-	else:  # domain
-		raw = analyze_domain_urlscan(search_item)
-		parsed = parse_urlscan_domain(raw)
-		source = "Urlscan"
-
-	cti_create = CTICreate(
-		search_item=search_item,
-		malicious_score=parsed["malicious_score"],
-		detect_count=parsed["detect_count"],
-		detect_vendor=parsed["detect_vendor"],
-		tag=parsed["tag"],
-		country=parsed["country"],
-		dns=parsed["dns"],
-		raw_data=raw,
-		last_analyzed=datetime.utcnow(),
-	)
-	db_obj = CTI(**cti_create.model_dump())
-	db.add(db_obj)
+def create_cti(db: Session, data: CTICreate) -> CTI:
+	obj = CTI(**data.dict())
+	db.add(obj)
 	db.commit()
-	db.refresh(db_obj)
-	return db_obj
+	db.refresh(obj)
+	return obj
+
+
+def _strip_key(value: Any) -> str:
+	return str(value).strip() if value is not None else ""
+
+
+def analyze_with_virustotal(domain: str) -> Dict[str, Any]:
+	api_key = _strip_key(conf.get("virustotal_api_key"))
+	headers = {"x-apikey": api_key, "accept": "application/json"} if api_key else {}
+	url = f"https://www.virustotal.com/api/v3/domains/{domain}"
+	try:
+		r = requests.get(url, headers=headers, timeout=15)
+		status = r.status_code
+		try:
+			data = r.json()
+		except Exception:
+			data = {"text": r.text}
+	except requests.RequestException as e:
+		status = 502
+		data = {"error": str(e)}
+
+	# 키 문제/권한/리소스 없음 등일 때 IP 엔드포인트로 폴백 시도
+	if status in (401, 403, 404):
+		try:
+			_, _, ips = socket.gethostbyname_ex(domain)
+		except Exception:
+			ips = []
+		if ips:
+			ip = ips[0]
+			ip_url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
+			try:
+				r2 = requests.get(ip_url, headers=headers, timeout=15)
+				status = r2.status_code
+				try:
+					data = r2.json()
+				except Exception:
+					data = {"text": r2.text}
+			except requests.RequestException as e:
+				status = 502
+				data = {"error": str(e)}
+		else:
+			data = {"status": status, "message": (data if isinstance(data, str) else str(data))[:500]}
+
+	attrs = (data or {}).get("data", {}).get("attributes", {}) if isinstance(data, dict) else {}
+	rep = attrs.get("reputation")
+	stats = attrs.get("last_analysis_stats", {}) or {}
+	malicious = stats.get("malicious")
+	country = attrs.get("country")
+	# 요약 벤더 목록 (악성으로 판정한 상위 몇 개만)
+	results = attrs.get("last_analysis_results", {}) or {}
+	vendors = [k for k, v in results.items() if isinstance(v, dict) and v.get("category") == "malicious"]
+
+	# 저장용 최소 요약 필드 구성
+	vt_trim = {
+		"status": status,
+		"reputation": rep if isinstance(rep, int) else 0,
+		"stats": {
+			"malicious": stats.get("malicious"),
+			"suspicious": stats.get("suspicious"),
+			"harmless": stats.get("harmless"),
+			"undetected": stats.get("undetected"),
+		},
+		"country": country,
+		"as_owner": attrs.get("as_owner"),
+		"tags": (attrs.get("tags") or [])[:10],
+		"vendors_malicious": vendors[:5],
+		"last_modification_date": attrs.get("last_modification_date"),
+	}
+
+	return {
+		"status": status,
+		"malicious_score": rep if isinstance(rep, int) else 0,
+		"detect_count": malicious if isinstance(malicious, int) else 0,
+		"detect_vendor": "VirusTotal",
+		"country": country,
+		"dns": None,
+		"raw_data": vt_trim,
+	}
+
+
+def analyze_with_hybrid(domain: str) -> Dict[str, Any]:
+	api_key = _strip_key(conf.get("hybrid_analysis_api_key"))
+	headers = {
+		"api-key": api_key or "",
+		"accept": "application/json",
+		"User-Agent": "Falcon Sandbox",
+	}
+	# 공식 문서 기준: terms[0][term]=domain|host, terms[0][value]=<domain>
+	url = "https://www.hybrid-analysis.com/api/v2/search/terms"
+	try:
+		# 1차: JSON 바디 (term=domain)
+		json_body = {"terms": [{"term": "domain", "value": domain}], "maxresults": 25, "offset": 0}
+		r = requests.post(url, headers={**headers, "Content-Type": "application/json"}, json=json_body, timeout=20)
+		status = r.status_code
+		try:
+			data = r.json()
+		except Exception:
+			data = {"text": r.text}
+		# 4xx면 파라미터 호환성 이슈 가능 → fallback 시도
+		if status >= 400:
+			# 1-2차: JSON 바디 (term=host)
+			json_body2 = {"terms": [{"term": "host", "value": domain}], "maxresults": 25, "offset": 0}
+			r2 = requests.post(url, headers={**headers, "Content-Type": "application/json"}, json=json_body2, timeout=20)
+			status = r2.status_code
+			try:
+				data = r2.json()
+			except Exception:
+				data = {"text": r2.text}
+			# 2차: x-www-form-urlencoded (terms[0][term]=domain)
+			if status >= 400:
+				form = {"terms[0][term]": "domain", "terms[0][value]": domain}
+				r2 = requests.post(url, headers={**headers, "Content-Type": "application/x-www-form-urlencoded"}, data=form, timeout=20)
+				status = r2.status_code
+				try:
+					data = r2.json()
+				except Exception:
+					data = {"text": r2.text}
+			# 3차: 구 포맷(term=domain:<domain>)
+			if status >= 400:
+				alt = {"term": f"domain:{domain}"}
+				r3 = requests.post(url, headers={**headers, "Content-Type": "application/x-www-form-urlencoded"}, data=alt, timeout=20)
+				status = r3.status_code
+				try:
+					data = r3.json()
+				except Exception:
+					data = {"text": r3.text}
+			# 최종 status는 마지막 시도 결과를 유지
+	except requests.RequestException as e:
+		status = 502
+		data = {"error": str(e)}
+
+	detect_count = 0
+	trimmed: Dict[str, Any] = {"status": status}
+	if isinstance(data, dict):
+		# search/terms 응답은 {result: [...]} 구조
+		results = data.get("result") if isinstance(data.get("result"), list) else []
+		mal_like = {"malicious", "suspicious", "malware", "grayware"}
+		def is_hit(it: Dict[str, Any]) -> bool:
+			verdict = str(it.get("verdict", "")).lower()
+			threat = it.get("threat_score") or it.get("threatscore") or 0
+			av = it.get("av_detect") or 0
+			return (verdict in mal_like) or (isinstance(threat, (int, float)) and threat > 0) or (isinstance(av, (int, float)) and av > 0)
+		detect_count = sum(1 for it in results if isinstance(it, dict) and is_hit(it))
+		# 요약 저장
+		matches = []
+		for it in results[:10]:
+			if not isinstance(it, dict):
+				continue
+			matches.append({
+				"sha256": it.get("sha256") or it.get("sha2") or it.get("sha1"),
+				"verdict": it.get("verdict"),
+				"threat_score": it.get("threat_score") or it.get("threatscore"),
+				"av_detect": it.get("av_detect"),
+				"vx_family": it.get("vx_family"),
+				"type": it.get("type") or it.get("type_short"),
+				"host": it.get("host") or it.get("host_ip") or it.get("domain"),
+				"url": it.get("url"),
+				"submit_time": it.get("submit_time") or it.get("analysis_start_time"),
+			})
+		trimmed.update({
+			"total": len(results),
+			"matches": matches,
+		})
+
+	# 권한/엔드포인트 이슈 힌트 추가
+	if status == 404 and isinstance(data, dict) and "text" in data:
+		trimmed = {"message": "Hybrid Analysis search/terms not available for this API key or incorrect endpoint", "hint": "Check API plan/permissions"}
+	return {
+		"status": status,
+		"malicious_score": 0,
+		"detect_count": detect_count,
+		"detect_vendor": "Hybrid-Analysis",
+		"country": None,
+		"dns": None,
+		"raw_data": trimmed if isinstance(trimmed, dict) and trimmed else data,
+	}
+
+
+def analyze_with_urlscan(domain: str) -> Dict[str, Any]:
+	api_key = _strip_key(conf.get("urlscan_api_key"))
+	headers = {
+		"API-Key": api_key or "",
+		"Content-Type": "application/json",
+	}
+	url = "https://urlscan.io/api/v1/search/"
+	params = {"q": f"domain:{domain}"}
+	try:
+		r = requests.get(url, headers=headers, params=params, timeout=20)
+		status = r.status_code
+		try:
+			data = r.json()
+		except Exception:
+			data = {"text": r.text}
+	except requests.RequestException as e:
+		status = 502
+		data = {"error": str(e)}
+
+	# raw_data를 필요한 필드만 축약해서 저장
+	trimmed: Dict[str, Any] = {}
+	if isinstance(data, dict):
+		# 흔히 유용한 키들만 선별
+		trimmed["total"] = data.get("total")
+		trimmed["took"] = data.get("took")
+		# 가장 최근 결과 하나만 요약 저장
+		if isinstance(data.get("results"), list) and data["results"]:
+			latest = data["results"][0]
+			page = latest.get("page", {}) if isinstance(latest, dict) else {}
+			task = latest.get("task", {}) if isinstance(latest, dict) else {}
+			stats = latest.get("stats", {}) if isinstance(latest, dict) else {}
+			trimmed["page"] = {
+				"domain": page.get("domain"),
+				"url": page.get("url"),
+				"ip": page.get("ip"),
+				"country": page.get("country"),
+				"server": page.get("server"),
+			}
+			trimmed["task"] = {
+				"time": task.get("time"),
+				"method": task.get("method"),
+			}
+			trimmed["stats"] = {
+				"malicious": stats.get("malicious") or stats.get("maliciousCount"),
+				"suspicious": stats.get("suspicious"),
+			}
+
+	return {
+		"status": status,
+		"malicious_score": 0,
+		"detect_count": 0,
+		"detect_vendor": "Urlscan",
+		"country": trimmed.get("page", {}).get("country") if isinstance(trimmed.get("page"), dict) else None,
+		"dns": None,
+		"raw_data": trimmed or data,
+	}
+
+
+ 
+
+
+def upsert_cti_results(db: Session, domain: str) -> List[CTI]:
+	now = datetime.now()
+	results: List[CTI] = []
+
+	for source, analyzer in (
+		("virustotal", analyze_with_virustotal),
+		("hybrid", analyze_with_hybrid),
+		("urlscan", analyze_with_urlscan),
+	):
+		res = analyzer(domain)
+		cti = CTICreate(
+			search_item=domain,
+			malicious_score=res.get("malicious_score", 0),
+			detect_count=res.get("detect_count", 0),
+			detect_vendor=res.get("detect_vendor"),
+			tag=source,
+			country=res.get("country"),
+			dns=res.get("dns"),
+			raw_data=res.get("raw_data"),
+			last_analyzed=now,
+		)
+		results.append(create_cti(db, cti))
+
+	return results
 
