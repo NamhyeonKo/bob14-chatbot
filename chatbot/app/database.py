@@ -28,8 +28,6 @@ class Database:
                 autocommit=False
             )
         )
-        self.engine = create_engine(...)
-        self.Session = scoped_session(...)
 
     def get_session(self):
         session = self.Session()
