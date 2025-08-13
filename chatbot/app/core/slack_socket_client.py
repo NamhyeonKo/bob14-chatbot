@@ -50,6 +50,18 @@ class SlackSocketClient:
                 # 백그라운드에서 실제 처리 (비동기)
                 import asyncio
                 asyncio.create_task(self._handle_bobwiki_async(command, say))
+            
+            # ioc 명령어인 경우 특별 처리
+            elif command["text"].strip().startswith("ioc"):
+                # 즉시 "처리 중" 메시지 전송
+                await respond(
+                    text="🔍 IoC 분석 중입니다... 잠시만 기다려주세요!",
+                    response_type="ephemeral"
+                )
+                
+                # 백그라운드에서 실제 처리 (비동기)
+                import asyncio
+                asyncio.create_task(self._handle_ioc_async(command, say))
             else:
                 # 일반 명령어는 즉시 응답
                 await respond(
@@ -88,6 +100,38 @@ class SlackSocketClient:
             # 에러 발생 시 에러 메시지 전송
             await say(
                 text=f"❌ 처리 중 오류가 발생했습니다: {str(e)}",
+                channel=command["channel_id"]
+            )
+    
+    async def _handle_ioc_async(self, command, say):
+        """IoC 명령어 비동기 처리"""
+        try:
+            from app.crud.slack import handle_ioc_command
+            
+            # IoC 값 추출
+            text_parts = command["text"].strip().split()
+            if len(text_parts) < 2:
+                await say(
+                    text="❌ 사용법: `/bobbot ioc [도메인/IP주소]`\n\n**예시:**\n• `/bobbot ioc naver.com`\n• `/bobbot ioc 8.8.8.8`",
+                    channel=command["channel_id"]
+                )
+                return
+            
+            ioc_value = text_parts[1]
+            
+            # 실제 IoC 분석 처리
+            result = handle_ioc_command(ioc_value)
+            
+            # 결과 전송
+            await say(
+                text=result["text"],
+                channel=command["channel_id"]
+            )
+            
+        except Exception as e:
+            # 에러 발생 시 에러 메시지 전송
+            await say(
+                text=f"❌ IoC 분석 중 오류가 발생했습니다: {str(e)}",
                 channel=command["channel_id"]
             )
     
