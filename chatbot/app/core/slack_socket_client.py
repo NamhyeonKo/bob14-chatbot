@@ -5,7 +5,6 @@ from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from app.core.config import get_config
 from app.crud.slack import handle_bobbot_command
 
-
 class SlackSocketClient:
     def __init__(self):
         config = get_config()
@@ -40,13 +39,57 @@ class SlackSocketClient:
                 command["text"]
             )
             
-            # Socket Mode에서는 respond 사용 (ephemeral 메시지)
-            await respond(
-                text=response["text"],
-                response_type="ephemeral"  # 본인만 볼 수 있는 메시지
-            )
+            # bobwiki 명령어인 경우 특별 처리
+            if command["text"].strip().startswith("bobwiki"):
+                # 즉시 "처리 중" 메시지 전송
+                await respond(
+                    text="🔍 BOB 위키에서 검색 중입니다... 잠시만 기다려주세요!",
+                    response_type="ephemeral"
+                )
+                
+                # 백그라운드에서 실제 처리 (비동기)
+                import asyncio
+                asyncio.create_task(self._handle_bobwiki_async(command, say))
+            else:
+                # 일반 명령어는 즉시 응답
+                await respond(
+                    text=response["text"],
+                    response_type="ephemeral"
+                )
         
         print("✅ Slack 명령어 등록 완료: /bobbot")
+    
+    async def _handle_bobwiki_async(self, command, say):
+        """bobwiki 명령어 비동기 처리"""
+        try:
+            from app.crud.slack import handle_bobwiki_command
+            
+            # 검색어 추출
+            text_parts = command["text"].strip().split()
+            if len(text_parts) < 2:
+                await say(
+                    text="❌ 사용법: `/bobbot bobwiki [검색할 이름]`\n예시: `/bobbot bobwiki 고남현`",
+                    channel=command["channel_id"]
+                )
+                return
+            
+            search_term = " ".join(text_parts[1:])
+            
+            # 실제 bobwiki 처리 (시간이 오래 걸리는 작업)
+            result = handle_bobwiki_command(search_term)
+            
+            # 결과 전송
+            await say(
+                text=result["text"],
+                channel=command["channel_id"]
+            )
+            
+        except Exception as e:
+            # 에러 발생 시 에러 메시지 전송
+            await say(
+                text=f"❌ 처리 중 오류가 발생했습니다: {str(e)}",
+                channel=command["channel_id"]
+            )
     
     async def start(self):
         """소켓 모드 시작"""

@@ -5,6 +5,7 @@ from app.api import user
 from app.api import ioc
 from app.api import cti
 from app.api import slack
+from app.api import wiki
 from app.database import db, Base
 
 app = FastAPI(title="Bobbot API")
@@ -14,6 +15,7 @@ app.include_router(user.router, prefix="/users", tags=["users"])
 app.include_router(ioc.router, prefix="/ioc", tags=["ioc"])
 app.include_router(cti.router, prefix="/cti", tags=["cti"])
 app.include_router(slack.router, prefix="/slack", tags=["slack"])
+app.include_router(wiki.router, prefix="/wiki", tags=["wiki"])
 
 # Global variable to store the socket client task
 socket_task = None
