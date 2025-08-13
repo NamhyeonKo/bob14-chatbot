@@ -1,14 +1,14 @@
-from app.database import Database
-from app.models.user import Base
-
-# Create database instance
-db = Database()
+import pymysql
 
 try:
-    # Try to create all tables
-    Base.metadata.create_all(db.engine)
-    print("Database connection successful!")
-    print("Tables created successfully!")
+    conn = pymysql.connect(
+        host="localhost",
+        port=3306,
+        user="root",
+        password="",  # 실제 비밀번호 입력
+        database="bobbot"
+    )
+    print("DB 연결 성공!")
+    conn.close()
 except Exception as e:
-    print("Database connection failed!")
-    print(f"Error: {str(e)}")
+    print("DB 연결 실패:", e)
