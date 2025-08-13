@@ -21,8 +21,20 @@ def _strip_key(value: Any) -> str:
 
 def analyze_with_virustotal(domain: str) -> Dict[str, Any]:
 	api_key = _strip_key(conf.get("virustotal_api_key"))
-	headers = {"x-apikey": api_key, "accept": "application/json"} if api_key else {}
+	if not api_key:
+		return {
+			"status": 401,
+			"malicious_score": 0,
+			"detect_count": 0,
+			"detect_vendor": "VirusTotal",
+			"country": None,
+			"dns": None,
+			"raw_data": {"error": "VirusTotal API key not configured"},
+		}
+	
+	headers = {"x-apikey": api_key, "accept": "application/json"}
 	url = f"https://www.virustotal.com/api/v3/domains/{domain}"
+	
 	try:
 		r = requests.get(url, headers=headers, timeout=15)
 		status = r.status_code
@@ -34,33 +46,34 @@ def analyze_with_virustotal(domain: str) -> Dict[str, Any]:
 		status = 502
 		data = {"error": str(e)}
 
-	# 키 문제/권한/리소스 없음 등일 때 IP 엔드포인트로 폴백 시도
-	if status in (401, 403, 404):
+	# 404 에러일 때만 IP 폴백 시도 (권한 문제가 아닌 경우)
+	if status == 404:
 		try:
 			_, _, ips = socket.gethostbyname_ex(domain)
-		except Exception:
-			ips = []
-		if ips:
-			ip = ips[0]
-			ip_url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
-			try:
-				r2 = requests.get(ip_url, headers=headers, timeout=15)
-				status = r2.status_code
+			if ips:
+				ip = ips[0]
+				ip_url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
 				try:
-					data = r2.json()
-				except Exception:
-					data = {"text": r2.text}
-			except requests.RequestException as e:
-				status = 502
-				data = {"error": str(e)}
-		else:
-			data = {"status": status, "message": (data if isinstance(data, str) else str(data))[:500]}
+					r2 = requests.get(ip_url, headers=headers, timeout=15)
+					if r2.status_code == 200:
+						status = r2.status_code
+						try:
+							data = r2.json()
+						except Exception:
+							data = {"text": r2.text}
+				except requests.RequestException:
+					# IP 폴백 실패 시 원래 상태 유지
+					pass
+		except Exception:
+			# DNS 조회 실패 시 원래 상태 유지
+			pass
 
 	attrs = (data or {}).get("data", {}).get("attributes", {}) if isinstance(data, dict) else {}
 	rep = attrs.get("reputation")
 	stats = attrs.get("last_analysis_stats", {}) or {}
 	malicious = stats.get("malicious")
 	country = attrs.get("country")
+	
 	# 요약 벤더 목록 (악성으로 판정한 상위 몇 개만)
 	results = attrs.get("last_analysis_results", {}) or {}
 	vendors = [k for k, v in results.items() if isinstance(v, dict) and v.get("category") == "malicious"]
@@ -70,10 +83,10 @@ def analyze_with_virustotal(domain: str) -> Dict[str, Any]:
 		"status": status,
 		"reputation": rep if isinstance(rep, int) else 0,
 		"stats": {
-			"malicious": stats.get("malicious"),
-			"suspicious": stats.get("suspicious"),
-			"harmless": stats.get("harmless"),
-			"undetected": stats.get("undetected"),
+			"malicious": stats.get("malicious", 0),
+			"suspicious": stats.get("suspicious", 0),
+			"harmless": stats.get("harmless", 0),
+			"undetected": stats.get("undetected", 0),
 		},
 		"country": country,
 		"as_owner": attrs.get("as_owner"),
