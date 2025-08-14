@@ -1,11 +1,8 @@
 import asyncio
 import re
-import requests
 from app.crud.wiki import wiki_crawler
 from app.crud.wiki_summarizer import wiki_summarizer
-from app.crud.cti import analyze_with_virustotal
-from app.crud.ioc import analyze_ip_with_virustotal
-from app.core.config import get_config
+from app.crud.cti import analyze_with_virustotal, analyze_ip_with_virustotal_for_slack
 
 
 def handle_bobbot_command(user_id: str, channel_id: str, text: str) -> dict:
@@ -179,67 +176,6 @@ def get_ioc_type(ioc_value: str) -> str:
         return "domain"
     else:
         return None
-
-
-def analyze_ip_with_virustotal_for_slack(ip: str) -> dict:
-    """슬랙용 IP 분석 함수 (CTI 형식과 맞춤)"""
-    try:
-        from app.crud.ioc import VT_API_KEY
-        import requests
-        
-        if not VT_API_KEY:
-            return {
-                "status": 401,
-                "error": "VirusTotal API key is not configured"
-            }
-        
-        # 직접 VirusTotal API 호출
-        headers = {"x-apikey": VT_API_KEY.strip()}
-        url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
-        
-        try:
-            response = requests.get(url, headers=headers, timeout=15)
-            status_code = response.status_code
-            
-            if status_code == 200:
-                vt_data = response.json()
-                attributes = vt_data.get("data", {}).get("attributes", {})
-                stats = attributes.get("last_analysis_stats", {})
-                
-                return {
-                    "status": 200,
-                    "reputation": attributes.get("reputation", 0),
-                    "stats": {
-                        "malicious": stats.get("malicious", 0),
-                        "suspicious": stats.get("suspicious", 0),
-                        "harmless": stats.get("harmless", 0),
-                        "undetected": stats.get("undetected", 0),
-                    },
-                    "country": attributes.get("country"),
-                    "as_owner": attributes.get("as_owner"),
-                }
-            elif status_code == 404:
-                return {
-                    "status": 404,
-                    "error": "IP address not found in VirusTotal database"
-                }
-            else:
-                return {
-                    "status": status_code,
-                    "error": f"VirusTotal API error: {response.text[:200]}"
-                }
-                
-        except requests.exceptions.RequestException as e:
-            return {
-                "status": 502,
-                "error": f"Network error: {str(e)}"
-            }
-            
-    except Exception as e:
-        return {
-            "status": 500,
-            "error": str(e)
-        }
 
 
 def is_valid_ioc_format(ioc_value: str) -> bool:

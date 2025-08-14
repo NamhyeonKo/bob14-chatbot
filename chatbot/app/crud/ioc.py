@@ -15,6 +15,7 @@ def get_ioc_by_value(db: Session, value: str):
     """DB에서 기존 IoC 정보를 조회합니다."""
     return db.query(IoC).filter(IoC.indicator_value == value).first()
 
+
 def analyze_ip_with_virustotal(ip: str):
     """VirusTotal API를 호출하여 IP 주소를 분석합니다."""
     if not VT_API_KEY:
@@ -29,6 +30,7 @@ def analyze_ip_with_virustotal(ip: str):
         return response.json()
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=502, detail=f"Failed to fetch data from VirusTotal: {e}")
+
 
 def create_ioc_report(db: Session, ip: str, vt_data: dict, access_log_id: Optional[str] = None) -> IoC:
     """분석 결과를 access_log_id와 연결하여 DB에 저장합니다."""

@@ -16,8 +16,70 @@ def create_cti(db: Session, data: CTICreate) -> CTI:
 	db.refresh(obj)
 	return obj
 
+
 def _strip_key(value: Any) -> str:
 	return str(value).strip() if value is not None else ""
+
+
+def analyze_ip_with_virustotal_for_slack(ip: str) -> dict:
+    """슬랙용 IP 분석 함수 (CTI 형식과 맞춤)"""
+    try:
+        from app.crud.ioc import VT_API_KEY
+        
+        if not VT_API_KEY:
+            return {
+                "status": 401,
+                "error": "VirusTotal API key is not configured"
+            }
+        
+        # 직접 VirusTotal API 호출
+        headers = {"x-apikey": VT_API_KEY.strip()}
+        url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            status_code = response.status_code
+            
+            if status_code == 200:
+                vt_data = response.json()
+                attributes = vt_data.get("data", {}).get("attributes", {})
+                stats = attributes.get("last_analysis_stats", {})
+                
+                return {
+                    "status": 200,
+                    "reputation": attributes.get("reputation", 0),
+                    "stats": {
+                        "malicious": stats.get("malicious", 0),
+                        "suspicious": stats.get("suspicious", 0),
+                        "harmless": stats.get("harmless", 0),
+                        "undetected": stats.get("undetected", 0),
+                    },
+                    "country": attributes.get("country"),
+                    "as_owner": attributes.get("as_owner"),
+                }
+            elif status_code == 404:
+                return {
+                    "status": 404,
+                    "error": "IP address not found in VirusTotal database"
+                }
+            else:
+                return {
+                    "status": status_code,
+                    "error": f"VirusTotal API error: {response.text[:200]}"
+                }
+                
+        except requests.exceptions.RequestException as e:
+            return {
+                "status": 502,
+                "error": f"Network error: {str(e)}"
+            }
+            
+    except Exception as e:
+        return {
+            "status": 500,
+            "error": str(e)
+        }
+
 
 def analyze_with_virustotal(domain: str) -> Dict[str, Any]:
 	api_key = _strip_key(conf.get("virustotal_api_key"))
@@ -104,6 +166,7 @@ def analyze_with_virustotal(domain: str) -> Dict[str, Any]:
 		"dns": None,
 		"raw_data": vt_trim,
 	}
+
 
 def analyze_with_hybrid(domain: str) -> Dict[str, Any]:
 	"""
@@ -258,6 +321,7 @@ def analyze_with_hybrid(domain: str) -> Dict[str, Any]:
 		"raw_data": trimmed,
 	}
 
+
 def analyze_with_urlscan(domain: str) -> Dict[str, Any]:
 	api_key = _strip_key(conf.get("urlscan_api_key"))
 	headers = {
@@ -357,6 +421,7 @@ def analyze_with_urlscan(domain: str) -> Dict[str, Any]:
 		"dns": None,
 		"raw_data": trimmed or data,
 	}
+
 
 def upsert_cti_results(db: Session, domain: str) -> List[CTI]:
 	now = datetime.now()
