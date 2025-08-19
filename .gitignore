@@ -6,9 +6,12 @@ build/
 dist/
 
 # Environment & Config
-.env*
+.env
+.env.local
+.env.*.local
 .venv/
 venv/
+conf.json
 
 # IDEs
 .vscode/
