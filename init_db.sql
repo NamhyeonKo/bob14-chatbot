@@ -1,0 +1,22 @@
+-- Create database
+CREATE DATABASE IF NOT EXISTS bobbot;
+USE bobbot;
+
+-- Create UserTable
+CREATE TABLE IF NOT EXISTS UserTable (
+    id INTEGER PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    salt VARCHAR(255) NOT NULL,
+    hashed_password VARCHAR(255) NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create AccessLogTable
+CREATE TABLE IF NOT EXISTS AccessLogTable (
+    id INTEGER PRIMARY KEY AUTO_INCREMENT,
+    user_id INTEGER NOT NULL,
+    access_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    action VARCHAR(50) NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES UserTable(id)
+);
