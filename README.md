@@ -1,137 +1,221 @@
-# Bobbot API (Slack Chatbot 백엔드)
+# 🤖 Bobbot - 보안 위협 분석 Slack 챗봇
 
-보안 위협 인텔리전스(CTI) 및 IoC(Indicator of Compromise) 분석 자동화 API 서버입니다. 
-외부 인텔리전스(VirusTotal, Hybrid Analysis, Urlscan)와 연동하여 IP, 도메인, 파일 해시 등 다양한 보안 정보를 분석·저장합니다.
-추가로 bobwiki 검색 기능도 제공합니다.
+보안 위협 인텔리전스(CTI) 및 IoC 분석을 자동화하는 FastAPI 기반 Slack 챗봇입니다.  
+외부 인텔리전스(VirusTotal, Hybrid Analysis, Urlscan)와 연동하여 IP, 도메인, 파일 해시를 실시간 분석하고,  
+BobWiki 검색 기능도 제공합니다.
 
-**Slack Chatbot Socket Mode와 연동**하여 Slack 채널에서 보안 분석 및 bobwiki 검색을 실시간으로 수행할 수 있습니다.
+## ✨ 주요 기능
 
-## 주요 기능
+- 🔍 **CTI 분석**: IP/도메인/파일 해시 자동 분석 및 결과 저장
+- 🛡️ **IoC 분석**: IP 기반 악성 여부 분석
+- 👥 **사용자 관리**: 사용자 등록/조회, 접근 로그 기록
+- 🔐 **API 키 인증**: X-API-Key 헤더 기반 보안
+- 💬 **Slack 연동**: Socket Mode를 통한 실시간 채팅 분석
+- 📚 **BobWiki 검색**: 위키 컨텐츠 검색 및 요약
+- 🐳 **Docker 지원**: 완전한 컨테이너화 환경
 
-- **CTI 분석**: IP/도메인/파일 해시 입력 시, 적합한 외부 인텔리전스 API를 자동 선택하여 분석 결과 저장
-- **IOC 분석**: IP 기반 악성 여부 분석 및 DB 저장
-- **User 관리**: 사용자 등록, 조회, 접근 로그 기록
-- **API 키 인증**: 모든 API는 X-API-Key 헤더 필요
-- **MySQL 연동**: SQLAlchemy 기반 ORM, DB에 결과 저장
-- **Docker 지원**: Dockerfile, docker-compose 포함
-- **Slack Bot 연동**: Socket Mode를 통한 실시간 Slack 채널 보안 분석 및 bobwiki 검색 결과 제공
+## 🚀 빠른 시작 (Docker)
 
-## 설치 및 환경설정
+### 1. 저장소 클론
 
-### 1. Python 환경
-- Python 3.10 이상 권장
-- 의존성 설치:
+```bash
+git clone https://github.com/NamhyeonKo/bob14-chatbot.git
+cd bob14-chatbot
+```
+
+### 2. 환경설정 파일 생성
+
+#### `.env` 파일 생성:
+
+```bash
+# Database Configuration
+MYSQL_ROOT_PASSWORD=your_mysql_root_password
+MYSQL_DATABASE=bobbot
+MYSQL_USER=bobbot
+MYSQL_PASSWORD=your_mysql_password
+
+# Application Configuration
+DB_HOST=mariadb
+DB_PORT=3306
+DB_USER=bobbot
+DB_PASSWORD=your_mysql_password
+DB_NAME=bobbot
+
+# OpenAI Configuration
+OPENAI_API_KEY=sk-your-openai-api-key
+
+# Slack Configuration
+SLACK_BOT_TOKEN=xoxb-your-slack-bot-token
+SLACK_APP_TOKEN=xapp-your-slack-app-token
+```
+
+#### `conf.json` 파일 생성:
+
+```json
+{
+    "database": {
+        "host": "localhost",
+        "port": 3306,
+        "user": "root",
+        "password": "",
+        "database": "bobbot"
+    },
+    "log": "debug",
+    "api_key": "your_internal_api_key",
+    "virustotal_api_key": "your_virustotal_api_key",
+    "hybrid_analysis_api_key": "your_hybrid_analysis_api_key", 
+    "urlscan_api_key": "your_urlscan_api_key"
+}
+```
+
+### 3. Docker로 실행
+
+```bash
+docker-compose up --build -d
+```
+
+서비스가 http://localhost:8000 에서 실행됩니다.
+
+## 🔧 로컬 개발 환경
+
+### 1. Python 환경 (3.12+ 권장)
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. DB 준비
-- maria DB 사용
-- conf.json에 DB 접속 정보 입력
+### 2. MariaDB 준비
 
-### 3. 외부 API 키 준비
-- conf.json에 아래 항목 추가/수정:
-```json
-{
-  "database": { ... },
-  "api_key": "<내부 API 인증키>",
-  "VIRUSTOTAL_API_KEY": "<발급받은 키>",
-  "HYBRID_API_KEY": "<발급받은 키>",
-  "URLSCAN_API_KEY": "<발급받은 키>"
-}
+```bash
+# Docker로 MariaDB 실행
+docker run -d --name bobbot-mariadb \
+  -e MYSQL_ROOT_PASSWORD=password \
+  -e MYSQL_DATABASE=bobbot \
+  -p 3306:3306 mariadb:10.11
 ```
 
-### 4. DB 테이블 생성
-- Alembic 등 마이그레이션 도구 사용 또는 최초 1회 수동 생성 필요
+### 3. 애플리케이션 실행
 
-### 5. 실행
 ```bash
 uvicorn main:app --reload
 ```
 
-## 주요 API 엔드포인트
+## 📡 API 엔드포인트
 
-### 1. CTI 분석
-- **POST /cti/analyze**
-- 입력: `{ "item": "8.8.8.8" }` (IP, 도메인, 해시 모두 지원)
-- 응답: 분석 결과 및 원시 데이터
+### CTI 분석
 
-### 2. IOC 분석
-- **POST /ioc/analyze/ip**
-- 입력: `{ "ip": "8.8.8.8" }`
-- 응답: 악성/의심/정상 카운트 등
-
-### 3. User
-- **POST /users/**: 사용자 등록
-- **GET /users/{user_id}**: 사용자 조회 및 접근 IP IoC 분석
-
-## 인증
-- 모든 API 요청 시 `X-API-Key` 헤더 필수
-
-## 예시 요청 (curl)
 ```bash
-curl -X POST http://localhost:8000/cti/analyze \
-  -H "X-API-Key: <내부키>" \
-  -H "Content-Type: application/json" \
-  -d '{"item": "example.com"}'
+POST /cti/analyze
+Content-Type: application/json
+X-API-Key: your_api_key
+
+{
+  "item": "8.8.8.8"  # IP, 도메인, 파일 해시 지원
+}
 ```
 
-## Slack Chatbot 연동 (Socket Mode)
+### IoC 분석
 
-이 API는 Slack Chatbot의 백엔드 서버로 사용됩니다. Slack Socket Mode를 통해 실시간으로 보안 분석을 수행할 수 있습니다.
+```bash
+POST /ioc/analyze/ip
+Content-Type: application/json  
+X-API-Key: your_api_key
 
-### Slack Bot 설정 방법
-
-1. **Slack App 생성**
-   - [api.slack.com](https://api.slack.com/apps) 에서 새 앱 생성
-   - Socket Mode 활성화
-   - Bot Token Scopes 설정: `chat:write`, `app_mentions:read`, `channels:history`
-
-2. **Bot Token & App Token 발급**
-   ```json
-   {
-     "slack": {
-       "bot_token": "xoxb-your-bot-token",
-       "app_token": "xapp-your-app-token"
-     }
-   }
-   ```
-
-3. **Slack에서 사용법**
-   ```
-   @botname ioc 8.8.8.8
-   @botname bobwiki 고남현
-   ```
-
-4. **응답 형태**
-   - 분석 결과를 Slack 채널에 실시간 전송
-   - 악성도 점수, 탐지 업체, 위험 레벨 표시
-   - 외부 인텔리전스 요약 정보 제공
-   - bobwiki에서 원하는 검색 결과 요약 제공
-
-### Socket Mode 장점
-- **실시간 통신**: WebSocket 기반 즉시 응답
-- **방화벽 우회**: 인바운드 연결 불필요
-- **보안성**: 토큰 기반 인증, HTTPS 암호화
-
-## 개발/운영 참고
-- 외부 인텔리전스 API는 요금제/쿼터 제한이 있으니 키 관리 주의
-- conf.json 등 민감정보는 git에 커밋하지 마세요
-- DB 테이블 구조/스키마는 models/ 참고
-- raw_data 필드는 외부 API 원본 전체 저장(용량 주의)
-
-## 프로젝트 구조
-
-```text
-app/
-├── api/          # API 엔드포인트
-├── core/         # 핵심 설정 및 보안
-├── crud/         # 데이터베이스 작업
-├── models/       # SQLAlchemy 모델
-├── schemas/      # Pydantic 스키마
-└── database.py   # 데이터베이스 연결
+{
+  "ip": "192.168.1.1"
+}
 ```
 
-## 라이선스
-bob14기 교육으로 만들어짐
+### 사용자 관리
+
+```bash
+# 사용자 등록
+POST /users/
+{
+  "username": "testuser",
+  "email": "test@example.com"
+}
+
+# 사용자 조회 (접근 IP IoC 자동 분석)
+GET /users/{user_id}
+```
+
+### API 문서
+
+- Swagger UI: http://localhost:8000/docs
+- ReDoc: http://localhost:8000/redoc
+
+## 💬 Slack 챗봇 설정
+
+### 1. Slack App 생성
+
+1. [api.slack.com/apps](https://api.slack.com/apps)에서 새 앱 생성
+2. **Socket Mode** 활성화
+3. **Bot Token Scopes** 설정:
+   - `chat:write`
+   - `app_mentions:read`
+   - `channels:history`
+
+### 2. 토큰 발급
+
+- **Bot User OAuth Token**: `xoxb-`로 시작
+- **App-Level Token**: `xapp-`로 시작 (connections:write 스코프 필요)
+
+### 3. Slack에서 사용법
+
+```txt
+@bobbot cti 8.8.8.8
+@bobbot ioc malicious-domain.com
+@bobbot wiki 고남현
+```
+
+### 4. 응답 예시
+
+```txt
+🔍 CTI 분석 결과: 8.8.8.8
+━━━━━━━━━━━━━━━━━━━━━━
+🛡️ 위험도: 안전 (0/84 탐지)
+🏢 소유자: Google LLC
+🌍 위치: 미국
+⏰ 분석 시간: 2024-08-20 15:30:25
+```
+
+## 🔐 보안 고려사항
+
+- **민감정보 관리**: `.env`, `conf.json`은 Git에 커밋되지 않음
+- **API 키 보호**: 모든 외부 API 키는 환경변수로 관리
+- **인증**: X-API-Key 헤더 기반 API 접근 제어
+- **Docker 보안**: 최소 권한 원칙, 비루트 사용자 실행
+
+## 🚨 외부 API 제한사항
+
+| 서비스 | 무료 한도 | 비고 |
+|--------|-----------|------|
+| VirusTotal | 1000 req/month | 공개 API |
+| Hybrid Analysis | 200 req/month | 샌드박스 분석 |
+| URLScan.io | 1000 req/month | URL 스캔 |
+
+## 🛠️ 개발 가이드
+
+### 새로운 분석 엔진 추가
+
+1. `app/crud/` 에 분석 로직 구현
+2. `app/api/` 에 엔드포인트 추가  
+3. `app/schemas/` 에 요청/응답 스키마 정의
+4. `app/models/` 에 DB 모델 추가
+
+### 로그 확인
+
+```bash
+# Docker 환경
+docker-compose logs api -f
+
+# 로컬 환경  
+tail -f app.log
+```
+
+## 📄 라이센스
+
+이 프로젝트는 BoB(Best of the Best) 14기 교육과정의 일환으로 개발되었습니다.
+
+---
